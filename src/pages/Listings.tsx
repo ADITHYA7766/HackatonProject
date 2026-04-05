@@ -7,13 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Search, Plus, Loader2 } from "lucide-react";
 import ListingCard from "@/components/ListingCard";
 import { useAuth } from "@/contexts/AuthContext";
+import type { Database } from "@/integrations/supabase/types";
+
+type WasteListingRow = Database["public"]["Tables"]["waste_listings"]["Row"];
 
 const CATEGORIES = ["all", "metal", "plastic", "chemical", "organic", "electronic", "textile", "glass", "other"];
 const HAZARD_LEVELS = ["all", "none", "low", "medium", "high"];
 
 const Listings = () => {
   const [searchParams] = useSearchParams();
-  const [listings, setListings] = useState<any[]>([]);
+  const [listings, setListings] = useState<WasteListingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [category, setCategory] = useState(searchParams.get("category") || "all");

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload, Sparkles, X } from "lucide-react";
+import { detectWasteFromImageFile } from "@/lib/wasteImageDetection";
 
 const CATEGORIES = ["metal", "plastic", "chemical", "organic", "electronic", "textile", "glass", "other"];
 const HAZARD_LEVELS = ["none", "low", "medium", "high"];
@@ -38,7 +39,8 @@ const ListingForm = () => {
     location: "", image_url: "",
   });
 
-  const API_URL = "http://localhost:8000";
+  /** Set `VITE_DETECTION_API_URL` to use the Python YOLO API (e.g. `http://127.0.0.1:8000` or `/api` with Vite proxy). Otherwise detection uses the browser model. */
+  const detectionApiBase = import.meta.env.VITE_DETECTION_API_URL?.trim() ?? "";
 
   useEffect(() => {
     if (!user) navigate("/auth");
@@ -68,51 +70,86 @@ const ListingForm = () => {
     }
   };
 
+  const applyDetection = (data: {
+    category: string;
+    suggested_title: string;
+    hazard_level: string;
+    confidence: number;
+    sourceLabel?: string;
+  }) => {
+    setDetectionResult({
+      category: data.category,
+      suggested_title: data.suggested_title,
+      hazard_level: data.hazard_level,
+      confidence: data.confidence,
+    });
+    setForm((prev) => ({
+      ...prev,
+      category: data.category,
+      title: data.suggested_title,
+      hazard_level: data.hazard_level,
+    }));
+    const pct = (data.confidence * 100).toFixed(0);
+    toast({
+      title: "AI detection complete",
+      description: data.sourceLabel
+        ? `${data.sourceLabel} — ${data.suggested_title} (${pct}% confidence)`
+        : `Detected: ${data.suggested_title} (${pct}% confidence)`,
+    });
+  };
+
   const detectWasteType = async (file: File) => {
     setDetecting(true);
     setDetectionResult(null);
 
-    try {
+    const tryRemote = async (): Promise<{
+      category: string;
+      suggested_title: string;
+      hazard_level: string;
+      confidence: number;
+    } | null> => {
+      if (!detectionApiBase) return null;
+      const base = detectionApiBase.replace(/\/$/, "");
       const formData = new FormData();
       formData.append("image", file);
-
-      const response = await fetch(`${API_URL}/detect`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error("Detection failed");
-      }
-
+      const response = await fetch(`${base}/detect`, { method: "POST", body: formData });
+      if (!response.ok) return null;
       const data = await response.json();
+      if (!data.success || !data.category) return null;
+      return {
+        category: data.category,
+        suggested_title: data.suggested_title ?? "Detected waste",
+        hazard_level: data.hazard_level ?? "none",
+        confidence: typeof data.confidence === "number" ? data.confidence : 0,
+      };
+    };
 
-      if (data.success && data.confidence > 0) {
-        setDetectionResult({
-          category: data.category,
-          suggested_title: data.suggested_title,
-          hazard_level: data.hazard_level,
-          confidence: data.confidence,
-        });
-
-        // Auto-fill the form
-        setForm(prev => ({
-          ...prev,
-          category: data.category,
-          title: data.suggested_title,
-          hazard_level: data.hazard_level,
-        }));
-
-        toast({
-          title: "AI Detection Complete",
-          description: `Detected: ${data.suggested_title} (${(data.confidence * 100).toFixed(0)}% confidence)`,
-        });
+    try {
+      const remote = await tryRemote().catch(() => null);
+      if (remote) {
+        applyDetection({ ...remote, sourceLabel: "YOLO API" });
+        return;
       }
+
+      const local = await detectWasteFromImageFile(file);
+      if (local) {
+        applyDetection({
+          ...local,
+          sourceLabel: "On-device (COCO)",
+        });
+        return;
+      }
+
+      toast({
+        title: "Nothing detected",
+        description: "Try a clearer photo of the waste item, or enter details manually.",
+        variant: "destructive",
+      });
     } catch (error) {
       console.error("Detection error:", error);
       toast({
-        title: "Detection Unavailable",
-        description: "Could not connect to AI detection service. Please fill manually.",
+        title: "Detection failed",
+        description: "Could not analyze the image. Please fill the form manually.",
         variant: "destructive",
       });
     } finally {

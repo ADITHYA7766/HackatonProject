@@ -5,11 +5,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Plus, Loader2 } from "lucide-react";
 import ListingCard from "@/components/ListingCard";
+import type { Database } from "@/integrations/supabase/types";
+
+type WasteListingRow = Database["public"]["Tables"]["waste_listings"]["Row"];
 
 const MyListings = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [listings, setListings] = useState<any[]>([]);
+  const [listings, setListings] = useState<WasteListingRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

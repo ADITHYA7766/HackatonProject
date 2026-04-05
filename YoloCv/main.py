@@ -15,7 +15,7 @@ app = FastAPI(title="YOLO Waste Detection API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
+    allow_credentials=False,  # must be False when using wildcard origin (browser CORS rules)
     allow_methods=["*"],
     allow_headers=["*"],
 )

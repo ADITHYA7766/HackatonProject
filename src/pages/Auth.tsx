@@ -43,8 +43,9 @@ const Auth = () => {
         if (error) throw error;
         toast({ title: "Account created!", description: "Check your email for verification." });
       }
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Something went wrong";
+      toast({ title: "Error", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }

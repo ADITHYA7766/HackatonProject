@@ -6,12 +6,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 
+import type { Database } from "@/integrations/supabase/types";
+
+type ListingRequestRow = Database["public"]["Tables"]["listing_requests"]["Row"];
+type WasteListingPreview = Pick<Database["public"]["Tables"]["waste_listings"]["Row"], "id" | "title" | "category">;
+type ListingRequestWithListing = ListingRequestRow & { waste_listings: WasteListingPreview | null };
+
 const statusVariant = (s: string) => s === "approved" ? "default" : s === "rejected" ? "destructive" : "secondary";
 
 const MyRequests = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<ListingRequestWithListing[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
