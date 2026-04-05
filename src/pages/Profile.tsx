@@ -21,15 +21,26 @@ const Profile = () => {
   useEffect(() => {
     if (!user) { navigate("/auth"); return; }
     supabase.from("profiles").select("*").eq("user_id", user.id).single()
-      .then(({ data }) => {
-        if (data) setForm({
-          display_name: data.display_name || "",
-          company_name: data.company_name || "",
-          phone: data.phone || "",
-          location: data.location || "",
-          bio: data.bio || "",
-        });
-        setLoading(false);
+      .then(({ data, error }) => {
+        if (error) {
+          toast({
+            title: "Error loading profile",
+            description: error.message,
+            variant: "destructive"
+          });
+          setLoading(false);
+        } else if (data) {
+          setForm({
+            display_name: data.display_name || "",
+            company_name: data.company_name || "",
+            phone: data.phone || "",
+            location: data.location || "",
+            bio: data.bio || "",
+          });
+          setLoading(false);
+        } else {
+          setLoading(false);
+        }
       });
   }, [user]);
 

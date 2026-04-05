@@ -22,7 +22,7 @@ const Listings = () => {
 
   useEffect(() => {
     fetchListings();
-  }, [category, hazard]);
+  }, [category, hazard, search]);
 
   const fetchListings = async () => {
     setLoading(true);

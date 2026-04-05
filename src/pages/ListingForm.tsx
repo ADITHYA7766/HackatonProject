@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, Sparkles, X } from "lucide-react";
 
 const CATEGORIES = ["metal", "plastic", "chemical", "organic", "electronic", "textile", "glass", "other"];
 const HAZARD_LEVELS = ["none", "low", "medium", "high"];
@@ -24,12 +24,21 @@ const ListingForm = () => {
   const [loading, setLoading] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectionResult, setDetectionResult] = useState<{
+    category: string;
+    suggested_title: string;
+    hazard_level: string;
+    confidence: number;
+  } | null>(null);
 
   const [form, setForm] = useState({
     title: "", description: "", category: "metal", quantity: "",
     unit: "kg", hazard_level: "none", price: "", currency: "USD",
     location: "", image_url: "",
   });
+
+  const API_URL = "http://localhost:8000";
 
   useEffect(() => {
     if (!user) navigate("/auth");
@@ -54,15 +63,82 @@ const ListingForm = () => {
     if (file) {
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file));
+      // Auto-detect when image is selected
+      detectWasteType(file);
     }
   };
 
-  const uploadImage = async (): Promise<string | null> => {
-    if (!imageFile || !user) return form.image_url || null;
+  const detectWasteType = async (file: File) => {
+    setDetecting(true);
+    setDetectionResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const response = await fetch(`${API_URL}/detect`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Detection failed");
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.confidence > 0) {
+        setDetectionResult({
+          category: data.category,
+          suggested_title: data.suggested_title,
+          hazard_level: data.hazard_level,
+          confidence: data.confidence,
+        });
+
+        // Auto-fill the form
+        setForm(prev => ({
+          ...prev,
+          category: data.category,
+          title: data.suggested_title,
+          hazard_level: data.hazard_level,
+        }));
+
+        toast({
+          title: "AI Detection Complete",
+          description: `Detected: ${data.suggested_title} (${(data.confidence * 100).toFixed(0)}% confidence)`,
+        });
+      }
+    } catch (error) {
+      console.error("Detection error:", error);
+      toast({
+        title: "Detection Unavailable",
+        description: "Could not connect to AI detection service. Please fill manually.",
+        variant: "destructive",
+      });
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const clearDetection = () => {
+    setDetectionResult(null);
+    setForm(prev => ({
+      ...prev,
+      title: "",
+      category: "metal",
+      hazard_level: "none",
+    }));
+  };
+
+  const uploadImage = async (currentImageUrl: string | null): Promise<string | null> => {
+    if (!imageFile || !user) return currentImageUrl;
     const ext = imageFile.name.split(".").pop();
     const path = `${user.id}/${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from("listing-images").upload(path, imageFile);
-    if (error) { toast({ title: "Upload failed", description: error.message, variant: "destructive" }); return null; }
+    if (error) {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+      return null;
+    }
     const { data } = supabase.storage.from("listing-images").getPublicUrl(path);
     return data.publicUrl;
   };
@@ -72,7 +148,7 @@ const ListingForm = () => {
     if (!user) return;
     setLoading(true);
 
-    const image_url = await uploadImage();
+    const image_url = await uploadImage(form.image_url);
 
     const payload = {
       title: form.title, description: form.description || null,
@@ -160,18 +236,53 @@ const ListingForm = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Image</Label>
+              <Label>Image (Optional - AI Auto-Detection)</Label>
               <div className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary transition-colors" onClick={() => document.getElementById("image-input")?.click()}>
                 {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg" />
+                  <div className="relative">
+                    <img src={imagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg" />
+                    {detecting && (
+                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                        <div className="text-white text-center">
+                          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                          <p className="text-sm">AI Detecting...</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-2 text-muted-foreground">
                     <Upload className="h-8 w-8 mx-auto" />
-                    <p>Click to upload an image</p>
+                    <p>Click to upload an image for AI detection</p>
+                    <p className="text-xs">Auto-fills title, category & hazard level</p>
                   </div>
                 )}
               </div>
               <input id="image-input" type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+
+              {/* Detection Result Badge */}
+              {detectionResult && (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-green-600" />
+                    <div className="text-sm">
+                      <span className="font-medium text-green-800">AI Detected: </span>
+                      <span className="text-green-700">
+                        {detectionResult.suggested_title} ({(detectionResult.confidence * 100).toFixed(0)}%)
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearDetection}
+                    className="h-6 w-6 p-0"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>

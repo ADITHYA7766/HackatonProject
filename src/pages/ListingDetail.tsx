@@ -16,24 +16,59 @@ const ListingDetail = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [listing, setListing] = useState<any>(null);
+  const [listing, setListing] = useState<{
+    id: string;
+    title: string;
+    description: string | null;
+    category: string;
+    quantity: number;
+    unit: string;
+    hazard_level: string;
+    price: number | null;
+    currency: string | null;
+    location: string | null;
+    image_url: string | null;
+    user_id: string;
+    status: string;
+    created_at: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<Array<{
+    id: string;
+    listing_id: string;
+    requester_id: string;
+    message: string | null;
+    status: string;
+    created_at: string;
+  }>>([]);
 
   useEffect(() => {
     fetchListing();
   }, [id]);
 
   const fetchListing = async () => {
-    const { data } = await supabase.from("waste_listings").select("*").eq("id", id).single();
-    setListing(data);
-    setLoading(false);
-    if (data && user) {
-      const { data: reqs } = await supabase.from("listing_requests").select("*").eq("listing_id", id!);
-      setRequests(reqs || []);
+    setLoading(true);
+    const { data, error } = await supabase.from("waste_listings").select("*").eq("id", id).single();
+    if (error) {
+      toast({
+        title: "Error loading listing",
+        description: error.message,
+        variant: "destructive"
+      });
+      setListing(null);
+    } else {
+      setListing(data);
+      if (user) {
+        const { data: reqs, error: reqError } = await supabase.from("listing_requests").select("*").eq("listing_id", id!);
+        if (reqError) {
+          toast({ title: "Error loading requests", description: reqError.message, variant: "destructive" });
+        }
+        setRequests(reqs || []);
+      }
     }
+    setLoading(false);
   };
 
   const handleRequest = async () => {
@@ -55,9 +90,16 @@ const ListingDetail = () => {
   };
 
   const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this listing?")) return;
     const { error } = await supabase.from("waste_listings").delete().eq("id", id!);
-    if (!error) {
-      toast({ title: "Listing deleted" });
+    if (error) {
+      toast({
+        title: "Error deleting listing",
+        description: error.message,
+        variant: "destructive"
+      });
+    } else {
+      toast({ title: "Listing deleted successfully" });
       navigate("/my-listings");
     }
   };
@@ -165,12 +207,22 @@ const ListingDetail = () => {
                 {r.status === "pending" && (
                   <div className="flex gap-2">
                     <Button size="sm" onClick={async () => {
-                      await supabase.from("listing_requests").update({ status: "approved" }).eq("id", r.id);
-                      fetchListing();
+                      const { error } = await supabase.from("listing_requests").update({ status: "approved" }).eq("id", r.id);
+                      if (error) {
+                        toast({ title: "Error approving request", description: error.message, variant: "destructive" });
+                      } else {
+                        toast({ title: "Request approved" });
+                        fetchListing();
+                      }
                     }}>Approve</Button>
                     <Button size="sm" variant="destructive" onClick={async () => {
-                      await supabase.from("listing_requests").update({ status: "rejected" }).eq("id", r.id);
-                      fetchListing();
+                      const { error } = await supabase.from("listing_requests").update({ status: "rejected" }).eq("id", r.id);
+                      if (error) {
+                        toast({ title: "Error rejecting request", description: error.message, variant: "destructive" });
+                      } else {
+                        toast({ title: "Request rejected" });
+                        fetchListing();
+                      }
                     }}>Reject</Button>
                   </div>
                 )}
