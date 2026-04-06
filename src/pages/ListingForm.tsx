@@ -106,7 +106,36 @@ const ListingForm = () => {
     setDetecting(true);
     setDetectionResult(null);
 
-    const tryRemote = async (): Promise<{
+    const CONFIDENCE_THRESHOLD = 0.5; // 50% minimum confidence
+
+    // Try 1: Browser-based COCO-SSD (FIRST priority)
+    const tryCOCO = async (): Promise<{
+      category: string;
+      suggested_title: string;
+      hazard_level: string;
+      confidence: number;
+      suggested_description: string;
+    } | null> => {
+      try {
+        const local = await detectWasteFromImageFile(file);
+        if (local) {
+          return {
+            category: local.category,
+            suggested_title: local.suggested_title,
+            hazard_level: local.hazard_level,
+            confidence: local.confidence,
+            suggested_description: local.suggested_description,
+          };
+        }
+        return null;
+      } catch (err) {
+        console.warn("COCO detection failed:", err);
+        return null;
+      }
+    };
+
+    // Try 2: Multi-model YOLO API (runs all 6 .pt models sequentially)
+    const tryMultiModelYOLO = async (): Promise<{
       category: string;
       suggested_title: string;
       hazard_level: string;
@@ -117,52 +146,68 @@ const ListingForm = () => {
       const base = detectionApiBase.replace(/\/$/, "");
       const formData = new FormData();
       formData.append("image", file);
-      const response = await fetch(`${base}/detect`, { method: "POST", body: formData });
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (!data.success || !data.category) return null;
-      const title = data.suggested_title ?? "Detected waste";
-      const hazard = data.hazard_level ?? "none";
-      const conf = typeof data.confidence === "number" ? data.confidence : 0;
-      const suggested_description =
-        typeof data.suggested_description === "string" && data.suggested_description.trim()
-          ? data.suggested_description
-          : buildSuggestedDescription({
-              title,
-              category: data.category,
-              hazard_level: hazard,
-              confidence: conf,
-              primary_label: typeof data.best_match === "string" ? data.best_match : undefined,
-            });
-      return {
-        category: data.category,
-        suggested_title: title,
-        hazard_level: hazard,
-        confidence: conf,
-        suggested_description,
-      };
+
+      try {
+        const response = await fetch(`${base}/detect`, { method: "POST", body: formData });
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        if (!data.success || !data.category) return null;
+
+        const title = data.suggested_title ?? "Detected waste";
+        const hazard = data.hazard_level ?? "none";
+        const conf = typeof data.confidence === "number" ? data.confidence : 0;
+
+        const suggested_description = buildSuggestedDescription({
+          title,
+          category: data.category,
+          hazard_level: hazard,
+          confidence: conf,
+          primary_label: data.best_model,
+        });
+
+        return {
+          category: data.category,
+          suggested_title: title,
+          hazard_level: hazard,
+          confidence: conf,
+          suggested_description,
+        };
+      } catch (err) {
+        console.warn("Multi-model YOLO failed:", err);
+        return null;
+      }
     };
 
     try {
-      const remote = await tryRemote().catch(() => null);
-      if (remote) {
-        applyDetection({ ...remote, sourceLabel: "YOLO API" });
+      // STEP 1: Try COCO model FIRST
+      const cocoResult = await tryCOCO();
+      if (cocoResult) {
+        // COCO detected something - use it immediately (skip YOLO .pt models)
+        applyDetection({ ...cocoResult, sourceLabel: "On-device (COCO)" });
         return;
       }
 
-      const local = await detectWasteFromImageFile(file);
-      if (local) {
-        applyDetection({
-          category: local.category,
-          suggested_title: local.suggested_title,
-          hazard_level: local.hazard_level,
-          confidence: local.confidence,
-          suggested_description: local.suggested_description,
-          sourceLabel: "On-device (COCO)",
-        });
-        return;
+      // STEP 2: COCO failed - Try YOLO .pt models
+      const yoloResult = await tryMultiModelYOLO();
+      if (yoloResult) {
+        // Check if confidence meets threshold
+        if (yoloResult.confidence >= CONFIDENCE_THRESHOLD) {
+          applyDetection({ ...yoloResult, sourceLabel: "Custom YOLO Models" });
+          return;
+        } else {
+          // Confidence < 50% even after running all custom YOLO models
+          toast({
+            title: "Image not clear",
+            description: "Enter the details manually",
+            variant: "destructive",
+          });
+          setDetecting(false);
+          return;
+        }
       }
 
+      // STEP 3: Both COCO and YOLO failed
       toast({
         title: "Nothing detected",
         description: "Try a clearer photo of the waste item, or enter details manually.",
@@ -248,6 +293,11 @@ const ListingForm = () => {
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the material, condition, and any special handling requirements..." rows={4} />
+              {detectionResult && (
+                <p className="text-xs text-muted-foreground italic">
+                  Auto filled the description. Modify at your comfort.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

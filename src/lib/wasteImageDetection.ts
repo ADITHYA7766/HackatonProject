@@ -11,10 +11,29 @@ export type WasteDetectionResult = {
   suggested_description: string;
 };
 
+export type YOLOModelResult = {
+  modelName: string;
+  detections: number;
+  maxConfidence: number;
+  category: string;
+  suggested_title: string;
+  hazard_level: string;
+};
+
 const BASE: Omit<WasteDetectionResult, "confidence" | "suggested_description"> = {
   category: "other",
   suggested_title: "Mixed / general waste material",
   hazard_level: "none",
+};
+
+/** Maps YOLO model names to waste listing categories and metadata */
+export const YOLO_MODEL_MAPPING: Record<string, Omit<WasteDetectionResult, "confidence" | "suggested_description">> = {
+  barrel: { category: "plastic", suggested_title: "Industrial barrels / containers", hazard_level: "medium" },
+  metal: { category: "metal", suggested_title: "Metal scrap / industrial waste", hazard_level: "low" },
+  electronics: { category: "electronic", suggested_title: "Electronic waste / e-waste", hazard_level: "medium" },
+  protection: { category: "other", suggested_title: "Protective equipment / industrial gear", hazard_level: "low" },
+  plastic: { category: "plastic", suggested_title: "Plastic waste / materials", hazard_level: "low" },
+  wood: { category: "organic", suggested_title: "Wood / timber waste", hazard_level: "none" },
 };
 
 /** Builds a listing description from detector output (used for COCO, YOLO API, or manual wiring). */
@@ -27,26 +46,87 @@ export function buildSuggestedDescription(opts: {
   primary_label?: string;
   other_labels?: string[];
 }): string {
-  const pct = Math.min(100, Math.max(0, opts.confidence * 100)).toFixed(0);
-  const head = opts.primary_label
-    ? `Image detection: "${opts.primary_label}" (${pct}% confidence).`
-    : `Estimated match confidence: ${pct}%.`;
-
-  const blocks = [
-    head,
-    `Suggested listing: ${opts.title}. Category: ${opts.category}. Hazard level: ${opts.hazard_level}.`,
+  const lines = [
+    `Listing Type: ${opts.title}`,
+    `Category: ${opts.category}`,
+    `Hazard Level: ${opts.hazard_level.charAt(0).toUpperCase() + opts.hazard_level.slice(1)}`,
   ];
 
-  const others = opts.other_labels?.filter(Boolean) ?? [];
-  if (others.length) {
-    blocks.push(`Other objects detected in the image: ${[...new Set(others)].slice(0, 6).join(", ")}.`);
+  return lines.join("\n");
+}
+
+/**
+ * Runs all YOLO models sequentially and returns the best matching result.
+ * Mimics the logic from Custom.py - tests image against all models and picks the best.
+ */
+export async function detectWithYOLOModels(file: File): Promise<YOLOModelResult | null> {
+  const detectionApiBase = import.meta.env.VITE_DETECTION_API_URL?.trim() ?? "";
+
+  if (!detectionApiBase) {
+    console.warn("VITE_DETECTION_API_URL not set. Cannot run YOLO models.");
+    return null;
   }
 
-  blocks.push(
-    "Please review and edit this text. Add quantity, condition, packaging, contamination, storage, and any regulatory or pickup constraints before publishing.",
-  );
+  const base = detectionApiBase.replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("image", file);
 
-  return blocks.join("\n\n");
+  // Define models to test (same order as Custom.py)
+  const models = ["best1", "best2", "bestElectronics", "bestProtection", "bestPlastic", "bestWood"];
+  const modelMapping: Record<string, string> = {
+    best1: "barrel",
+    best2: "metal",
+    bestElectronics: "electronics",
+    bestProtection: "protection",
+    bestPlastic: "plastic",
+    bestWood: "wood",
+  };
+
+  const results: YOLOModelResult[] = [];
+
+  // Run all models sequentially
+  for (const modelName of models) {
+    try {
+      const response = await fetch(`${base}/detect/${modelName}`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const mappedCategory = modelMapping[modelName];
+        const wasteInfo = YOLO_MODEL_MAPPING[mappedCategory] || BASE;
+
+        results.push({
+          modelName,
+          detections: data.detections || 0,
+          maxConfidence: data.maxConfidence || data.confidence || 0,
+          category: wasteInfo.category,
+          suggested_title: wasteInfo.suggested_title,
+          hazard_level: wasteInfo.hazard_level,
+        });
+      }
+    } catch (err) {
+      console.warn(`Model ${modelName} failed:`, err);
+    }
+  }
+
+  if (results.length === 0) return null;
+
+  // Find best model using same logic as Custom.py (detections first, then confidence)
+  const bestResult = results.reduce((best, current) => {
+    if (current.detections > best.detections) return current;
+    if (current.detections === best.detections && current.maxConfidence > best.maxConfidence) return current;
+    return best;
+  });
+
+  // Filter for multi-label detection (confidence > 0.6)
+  const multiLabels = results.filter(r => r.maxConfidence > 0.6);
+
+  console.log("YOLO Multi-label detection:", multiLabels.map(r => r.modelName));
+  console.log("Best model:", bestResult.modelName);
+
+  return bestResult;
 }
 
 /** COCO class name (lowercase) -> waste listing fields */
