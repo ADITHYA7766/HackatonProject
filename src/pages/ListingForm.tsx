@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,7 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Upload, Sparkles, X } from "lucide-react";
+import { Loader2, Upload, Sparkles, X, Camera } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { buildSuggestedDescription, detectWasteFromImageFile } from "@/lib/wasteImageDetection";
 
 const CATEGORIES = ["metal", "plastic", "chemical", "organic", "electronic", "textile", "glass", "other"];
@@ -26,6 +35,11 @@ const ListingForm = () => {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const isMobile = useIsMobile();
+  const [webcamOpen, setWebcamOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const [detectionResult, setDetectionResult] = useState<{
     category: string;
     suggested_title: string;
@@ -61,14 +75,84 @@ const ListingForm = () => {
     }
   };
 
+  const applyImageFile = (file: File) => {
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    detectWasteType(file);
+  };
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-      // Auto-detect when image is selected
-      detectWasteType(file);
+    if (file) applyImageFile(file);
+    e.target.value = "";
+  };
+
+  useEffect(() => {
+    if (!webcamOpen) return;
+
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        let attempts = 0;
+        const attach = () => {
+          if (cancelled) return;
+          const el = videoRef.current;
+          if (el) {
+            el.srcObject = stream;
+            void el.play();
+            return;
+          }
+          if (attempts++ < 30) requestAnimationFrame(attach);
+        };
+        attach();
+      })
+      .catch((err) => {
+        console.error(err);
+        toast({
+          title: "Camera unavailable",
+          description: err instanceof Error ? err.message : "Allow camera access to use the webcam.",
+          variant: "destructive",
+        });
+        setWebcamOpen(false);
+      });
+
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- toast is stable
+  }, [webcamOpen]);
+
+  const captureWebcamPhoto = () => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0) {
+      toast({ title: "Camera not ready", description: "Wait for the preview to appear.", variant: "destructive" });
+      return;
     }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: "image/jpeg" });
+        applyImageFile(file);
+        setWebcamOpen(false);
+      },
+      "image/jpeg",
+      0.92
+    );
   };
 
   const applyDetection = (data: {
@@ -370,6 +454,53 @@ const ListingForm = () => {
                 )}
               </div>
               <input id="image-input" type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              <input
+                id="camera-capture-input"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageChange}
+                className="hidden"
+              />
+
+              <div className="flex flex-wrap gap-2 justify-center">
+                {isMobile ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById("camera-capture-input")?.click()}
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    Take photo
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setWebcamOpen(true)}>
+                    <Camera className="h-4 w-4 mr-2" />
+                    Upload using webcam
+                  </Button>
+                )}
+              </div>
+
+              <Dialog open={webcamOpen} onOpenChange={setWebcamOpen}>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Webcam</DialogTitle>
+                    <DialogDescription>Allow camera access, then click Capture to use this photo for the listing.</DialogDescription>
+                  </DialogHeader>
+                  <div className="rounded-lg overflow-hidden bg-muted aspect-video flex items-center justify-center">
+                    <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                  </div>
+                  <DialogFooter className="gap-2 sm:gap-0">
+                    <Button type="button" variant="outline" onClick={() => setWebcamOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" onClick={captureWebcamPhoto}>
+                      Capture photo
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Detection Result Badge */}
               {detectionResult && (

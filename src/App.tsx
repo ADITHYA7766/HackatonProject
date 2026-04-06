@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
+import { RequestNotificationListener } from "@/components/RequestNotificationListener";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Listings from "./pages/Listings";
@@ -24,6 +25,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <RequestNotificationListener />
           <Navbar />
           <Routes>
             <Route path="/" element={<Index />} />

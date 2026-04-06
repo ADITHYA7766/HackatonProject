@@ -14,6 +14,8 @@ const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
@@ -38,7 +40,14 @@ const Auth = () => {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { display_name: displayName }, emailRedirectTo: window.location.origin },
+          options: {
+            data: {
+              company_name: companyName.trim(),
+              username: username.trim(),
+              display_name: displayName.trim(),
+            },
+            emailRedirectTo: window.location.origin,
+          },
         });
         if (error) throw error;
         toast({ title: "Account created!", description: "Check your email for verification." });
@@ -66,10 +75,41 @@ const Auth = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Display Name</Label>
-                <Input id="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name or company" required />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="company">Company Name</Label>
+                  <Input
+                    id="company"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Your company"
+                    required
+                    autoComplete="organization"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Unique username"
+                    required
+                    autoComplete="username"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="displayName">Display Name</Label>
+                  <Input
+                    id="displayName"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Name shown on your profile"
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+              </>
             )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

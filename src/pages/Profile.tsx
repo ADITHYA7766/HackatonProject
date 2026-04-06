@@ -16,7 +16,14 @@ const Profile = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ display_name: "", company_name: "", phone: "", location: "", bio: "" });
+  const [form, setForm] = useState({
+    display_name: "",
+    company_name: "",
+    username: "",
+    phone: "",
+    location: "",
+    bio: "",
+  });
 
   useEffect(() => {
     if (!user) { navigate("/auth"); return; }
@@ -33,6 +40,7 @@ const Profile = () => {
           setForm({
             display_name: data.display_name || "",
             company_name: data.company_name || "",
+            username: data.username || "",
             phone: data.phone || "",
             location: data.location || "",
             bio: data.bio || "",
@@ -64,14 +72,30 @@ const Profile = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="display_name">Display Name</Label>
-                <Input id="display_name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
-              </div>
+            <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="company_name">Company Name</Label>
-                <Input id="company_name" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+                <Input
+                  id="company_name"
+                  value={form.company_name}
+                  onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="display_name">Display Name</Label>
+                <Input
+                  id="display_name"
+                  value={form.display_name}
+                  onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
