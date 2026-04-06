@@ -148,6 +148,20 @@ async def detect_waste(image: UploadFile = File(...)):
         }
         suggested_hazard = hazard_mapping.get(detected_category, "none")
 
+        pct = min(100.0, max(0.0, float(best_confidence) * 100))
+        extra_models = ", ".join(m for m in multi_labels if m != best_model)[:500]
+        suggested_description = (
+            f'Image detection: primary model match "{best_model}" ({pct:.0f}% confidence).\n\n'
+            f"Suggested listing: {suggested_title}. Category: {detected_category}. "
+            f"Hazard level: {suggested_hazard}."
+        )
+        if extra_models:
+            suggested_description += f"\n\nOther models with strong response: {extra_models}."
+        suggested_description += (
+            "\n\nPlease review and edit this text. Add quantity, condition, packaging, contamination, "
+            "storage, and any regulatory or pickup constraints before publishing."
+        )
+
         return {
             "success": True,
             "best_match": best_model,
@@ -155,6 +169,7 @@ async def detect_waste(image: UploadFile = File(...)):
             "suggested_title": suggested_title,
             "hazard_level": suggested_hazard,
             "confidence": best_confidence,
+            "suggested_description": suggested_description,
             "all_detections": results_summary,
             "multi_labels": multi_labels,
         }
@@ -229,6 +244,15 @@ async def detect_waste_base64(image_data: Dict[str, str]):
         }
         suggested_hazard = hazard_mapping.get(detected_category, "none")
 
+        pct = min(100.0, max(0.0, float(best_confidence) * 100))
+        suggested_description = (
+            f'Image detection: primary model match "{best_model}" ({pct:.0f}% confidence).\n\n'
+            f"Suggested listing: {suggested_title}. Category: {detected_category}. "
+            f"Hazard level: {suggested_hazard}.\n\n"
+            "Please review and edit this text. Add quantity, condition, packaging, contamination, "
+            "storage, and any regulatory or pickup constraints before publishing."
+        )
+
         return {
             "success": True,
             "best_match": best_model,
@@ -236,6 +260,7 @@ async def detect_waste_base64(image_data: Dict[str, str]):
             "suggested_title": suggested_title,
             "hazard_level": suggested_hazard,
             "confidence": best_confidence,
+            "suggested_description": suggested_description,
             "all_detections": results_summary,
         }
 

@@ -8,16 +8,49 @@ export type WasteDetectionResult = {
   suggested_title: string;
   hazard_level: string;
   confidence: number;
+  suggested_description: string;
 };
 
-const BASE: Omit<WasteDetectionResult, "confidence"> = {
+const BASE: Omit<WasteDetectionResult, "confidence" | "suggested_description"> = {
   category: "other",
   suggested_title: "Mixed / general waste material",
   hazard_level: "none",
 };
 
+/** Builds a listing description from detector output (used for COCO, YOLO API, or manual wiring). */
+export function buildSuggestedDescription(opts: {
+  title: string;
+  category: string;
+  hazard_level: string;
+  confidence: number;
+  /** e.g. COCO class name or YOLO model key */
+  primary_label?: string;
+  other_labels?: string[];
+}): string {
+  const pct = Math.min(100, Math.max(0, opts.confidence * 100)).toFixed(0);
+  const head = opts.primary_label
+    ? `Image detection: "${opts.primary_label}" (${pct}% confidence).`
+    : `Estimated match confidence: ${pct}%.`;
+
+  const blocks = [
+    head,
+    `Suggested listing: ${opts.title}. Category: ${opts.category}. Hazard level: ${opts.hazard_level}.`,
+  ];
+
+  const others = opts.other_labels?.filter(Boolean) ?? [];
+  if (others.length) {
+    blocks.push(`Other objects detected in the image: ${[...new Set(others)].slice(0, 6).join(", ")}.`);
+  }
+
+  blocks.push(
+    "Please review and edit this text. Add quantity, condition, packaging, contamination, storage, and any regulatory or pickup constraints before publishing.",
+  );
+
+  return blocks.join("\n\n");
+}
+
 /** COCO class name (lowercase) -> waste listing fields */
-const COCO_CLASS_TO_WASTE: Record<string, Omit<WasteDetectionResult, "confidence">> = {
+const COCO_CLASS_TO_WASTE: Record<string, Omit<WasteDetectionResult, "confidence" | "suggested_description">> = {
   bottle: { category: "plastic", suggested_title: "Plastic bottles / containers", hazard_level: "low" },
   cup: { category: "plastic", suggested_title: "Plastic cups / disposables", hazard_level: "low" },
   "wine glass": { category: "glass", suggested_title: "Glass waste", hazard_level: "low" },
@@ -97,7 +130,7 @@ const COCO_CLASS_TO_WASTE: Record<string, Omit<WasteDetectionResult, "confidence
   person: { category: "other", suggested_title: "General waste / scene (no specific object)", hazard_level: "none" },
 };
 
-function mapCocoClass(className: string): Omit<WasteDetectionResult, "confidence"> {
+function mapCocoClass(className: string): Omit<WasteDetectionResult, "confidence" | "suggested_description"> {
   const key = className.trim().toLowerCase();
   const mapped = COCO_CLASS_TO_WASTE[key];
   return mapped ? { ...BASE, ...mapped } : { ...BASE };
@@ -140,9 +173,19 @@ export async function detectWasteFromImageFile(file: File): Promise<WasteDetecti
     predictions.sort((a, b) => b.score - a.score);
     const top = predictions[0];
     const mapped = mapCocoClass(top.class);
+    const otherLabels = predictions.slice(1, 8).map((p) => p.class);
+    const suggested_description = buildSuggestedDescription({
+      title: mapped.suggested_title,
+      category: mapped.category,
+      hazard_level: mapped.hazard_level,
+      confidence: top.score,
+      primary_label: top.class,
+      other_labels: otherLabels,
+    });
     return {
       ...mapped,
       confidence: top.score,
+      suggested_description,
     };
   } catch {
     URL.revokeObjectURL(url);

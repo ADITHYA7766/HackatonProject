@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload, Sparkles, X } from "lucide-react";
-import { detectWasteFromImageFile } from "@/lib/wasteImageDetection";
+import { buildSuggestedDescription, detectWasteFromImageFile } from "@/lib/wasteImageDetection";
 
 const CATEGORIES = ["metal", "plastic", "chemical", "organic", "electronic", "textile", "glass", "other"];
 const HAZARD_LEVELS = ["none", "low", "medium", "high"];
@@ -31,6 +31,7 @@ const ListingForm = () => {
     suggested_title: string;
     hazard_level: string;
     confidence: number;
+    suggested_description: string;
   } | null>(null);
 
   const [form, setForm] = useState({
@@ -75,6 +76,7 @@ const ListingForm = () => {
     suggested_title: string;
     hazard_level: string;
     confidence: number;
+    suggested_description: string;
     sourceLabel?: string;
   }) => {
     setDetectionResult({
@@ -82,12 +84,14 @@ const ListingForm = () => {
       suggested_title: data.suggested_title,
       hazard_level: data.hazard_level,
       confidence: data.confidence,
+      suggested_description: data.suggested_description,
     });
     setForm((prev) => ({
       ...prev,
       category: data.category,
       title: data.suggested_title,
       hazard_level: data.hazard_level,
+      description: data.suggested_description,
     }));
     const pct = (data.confidence * 100).toFixed(0);
     toast({
@@ -107,6 +111,7 @@ const ListingForm = () => {
       suggested_title: string;
       hazard_level: string;
       confidence: number;
+      suggested_description: string;
     } | null> => {
       if (!detectionApiBase) return null;
       const base = detectionApiBase.replace(/\/$/, "");
@@ -116,11 +121,25 @@ const ListingForm = () => {
       if (!response.ok) return null;
       const data = await response.json();
       if (!data.success || !data.category) return null;
+      const title = data.suggested_title ?? "Detected waste";
+      const hazard = data.hazard_level ?? "none";
+      const conf = typeof data.confidence === "number" ? data.confidence : 0;
+      const suggested_description =
+        typeof data.suggested_description === "string" && data.suggested_description.trim()
+          ? data.suggested_description
+          : buildSuggestedDescription({
+              title,
+              category: data.category,
+              hazard_level: hazard,
+              confidence: conf,
+              primary_label: typeof data.best_match === "string" ? data.best_match : undefined,
+            });
       return {
         category: data.category,
-        suggested_title: data.suggested_title ?? "Detected waste",
-        hazard_level: data.hazard_level ?? "none",
-        confidence: typeof data.confidence === "number" ? data.confidence : 0,
+        suggested_title: title,
+        hazard_level: hazard,
+        confidence: conf,
+        suggested_description,
       };
     };
 
@@ -134,7 +153,11 @@ const ListingForm = () => {
       const local = await detectWasteFromImageFile(file);
       if (local) {
         applyDetection({
-          ...local,
+          category: local.category,
+          suggested_title: local.suggested_title,
+          hazard_level: local.hazard_level,
+          confidence: local.confidence,
+          suggested_description: local.suggested_description,
           sourceLabel: "On-device (COCO)",
         });
         return;
@@ -162,6 +185,7 @@ const ListingForm = () => {
     setForm(prev => ({
       ...prev,
       title: "",
+      description: "",
       category: "metal",
       hazard_level: "none",
     }));
@@ -291,7 +315,7 @@ const ListingForm = () => {
                   <div className="space-y-2 text-muted-foreground">
                     <Upload className="h-8 w-8 mx-auto" />
                     <p>Click to upload an image for AI detection</p>
-                    <p className="text-xs">Auto-fills title, category & hazard level</p>
+                    <p className="text-xs">Auto-fills title, description, category & hazard level</p>
                   </div>
                 )}
               </div>
